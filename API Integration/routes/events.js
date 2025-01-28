@@ -1,5 +1,5 @@
 const express = require('express');
-const Event = require('../models/Event');
+const Event = require('../API Integration/models/Event');
 const router = express.Router();
 
 // GET /api/events

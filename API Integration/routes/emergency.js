@@ -1,12 +1,12 @@
 const express = require('express');
-const Exercise = require('../models/Exercise');
+const Emergency = require('../API Integration/models/Emergency');
 const router = express.Router();
 
-// GET /api/exercises
+// GET /api/emergency
 router.get('/', async (req, res) => {
   try {
-    const exercises = await Exercise.find();
-    res.status(200).json(exercises);
+    const numbers = await Emergency.find();
+    res.status(200).json(numbers);
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' });
   }

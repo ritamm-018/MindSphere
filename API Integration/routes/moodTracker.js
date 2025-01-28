@@ -1,5 +1,5 @@
 const express = require('express');
-const Mood = require('../models/Mood');
+const Mood = require('../API Integration/models/Mood');
 const router = express.Router();
 
 // POST /api/mood-tracker/log
