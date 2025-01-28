@@ -1,0 +1,236 @@
+// Backend Functionalities for Mental Health App (MongoDB + SQL Compatibility)
+
+// 1. Import Dependencies
+const express = require('express');
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const mysql = require('mysql2/promise');
+const {
+  connectDB,
+  User,
+  MoodTracker,
+  Progress,
+  Doctor,
+  Exercise,
+  Appointment,
+  Event,
+  EmergencyNumbers,
+} = require('./models');
+
+// 2. Initialize Express App
+const app = express();
+app.use(bodyParser.json());
+app.use(cors());
+
+// 3. Connect to MongoDB
+connectDB();
+
+// 4. Connect to MySQL Database
+const sqlDB = mysql.createPool({
+  host: 'localhost',
+  user: 'root',
+  password: 'password',
+  database: 'mental_health_app',
+});
+
+// 5. Backend Routes
+
+// User Registration
+app.post('/api/register', async (req, res) => {
+  const { username, email, password } = req.body;
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Save to MongoDB
+    const newUser = new User({ username, email, passwordHash: hashedPassword });
+    await newUser.save();
+
+    // Save to SQL
+    await sqlDB.execute('INSERT INTO users (username, email, password) VALUES (?, ?, ?)', [
+      username,
+      email,
+      hashedPassword,
+    ]);
+
+    res.status(201).json({ message: 'User registered successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error registering user' });
+  }
+});
+
+// User Login
+app.post('/api/login', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isPasswordValid) return res.status(401).json({ error: 'Invalid password' });
+
+    res.status(200).json({ message: 'Login successful', userId: user._id });
+  } catch (error) {
+    res.status(500).json({ error: 'Error logging in' });
+  }
+});
+
+// Mood Tracker Logging
+app.post('/api/mood', async (req, res) => {
+  const { userId, moodLogs, journalEntry } = req.body;
+  try {
+    const moodLog = new MoodTracker({ userId, date: new Date(), moodLogs, journalEntry });
+    await moodLog.save();
+
+    // Save mood to SQL
+    await sqlDB.execute(
+      'INSERT INTO mood_tracker (user_id, mood_logs, journal_entry, date) VALUES (?, ?, ?, ?)',
+      [userId, JSON.stringify(moodLogs), journalEntry, new Date()]
+    );
+
+    res.status(201).json({ message: 'Mood logged successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error logging mood' });
+  }
+});
+
+// Fetch Mood Tracker Data
+app.get('/api/mood/:userId', async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const moodData = await MoodTracker.find({ userId });
+
+    // Fetch mood data from SQL (optional)
+    const [sqlMoodData] = await sqlDB.execute('SELECT * FROM mood_tracker WHERE user_id = ?', [userId]);
+
+    res.status(200).json({ mongoData: moodData, sqlData: sqlMoodData });
+  } catch (error) {
+    res.status(500).json({ error: 'Error fetching mood data' });
+  }
+});
+
+// Fetch Progress Data
+app.get('/api/progress/:userId', async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const progressData = await Progress.find({ userId });
+
+    // Fetch progress data from SQL (optional)
+    const [sqlProgressData] = await sqlDB.execute('SELECT * FROM progress WHERE user_id = ?', [userId]);
+
+    res.status(200).json({ mongoData: progressData, sqlData: sqlProgressData });
+  } catch (error) {
+    res.status(500).json({ error: 'Error fetching progress data' });
+  }
+});
+
+// Add Appointment
+app.post('/api/appointments', async (req, res) => {
+  const { doctorId, userId, appointmentTime } = req.body;
+  try {
+    const appointment = new Appointment({ doctorId, userId, appointmentTime });
+    await appointment.save();
+
+    // Save appointment to SQL
+    await sqlDB.execute(
+      'INSERT INTO appointments (doctor_id, user_id, appointment_time) VALUES (?, ?, ?)',
+      [doctorId, userId, appointmentTime]
+    );
+
+    res.status(201).json({ message: 'Appointment booked successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error booking appointment' });
+  }
+});
+
+// Get Doctor List
+app.get('/api/doctors', async (req, res) => {
+  try {
+    const doctors = await Doctor.find();
+
+    // Fetch doctors from SQL (optional)
+    const [sqlDoctors] = await sqlDB.execute('SELECT * FROM doctors');
+
+    res.status(200).json({ mongoData: doctors, sqlData: sqlDoctors });
+  } catch (error) {
+    res.status(500).json({ error: 'Error fetching doctor list' });
+  }
+});
+
+// Fetch Exercises
+app.get('/api/exercises', async (req, res) => {
+  try {
+    const exercises = await Exercise.find();
+
+    // Fetch exercises from SQL (optional)
+    const [sqlExercises] = await sqlDB.execute('SELECT * FROM exercises');
+
+    res.status(200).json({ mongoData: exercises, sqlData: sqlExercises });
+  } catch (error) {
+    res.status(500).json({ error: 'Error fetching exercises' });
+  }
+});
+
+// Add Event RSVP
+app.post('/api/events/:eventId/rsvp', async (req, res) => {
+  const { eventId } = req.params;
+  const { userId } = req.body;
+  try {
+    const event = await Event.findById(eventId);
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+
+    event.rsvpUsers.push({ userId, rsvpTime: new Date() });
+    await event.save();
+
+    // Save RSVP to SQL
+    await sqlDB.execute(
+      'INSERT INTO event_rsvp (event_id, user_id, rsvp_time) VALUES (?, ?, ?)',
+      [eventId, userId, new Date()]
+    );
+
+    res.status(200).json({ message: 'RSVP successful' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error adding RSVP' });
+  }
+});
+
+// Fetch Emergency Numbers
+app.get('/api/emergency/:userId', async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const emergencyNumbers = await EmergencyNumbers.findOne({ userId });
+
+    // Fetch emergency numbers from SQL (optional)
+    const [sqlEmergencyNumbers] = await sqlDB.execute('SELECT * FROM emergency_numbers WHERE user_id = ?', [userId]);
+
+    res.status(200).json({ mongoData: emergencyNumbers, sqlData: sqlEmergencyNumbers });
+  } catch (error) {
+    res.status(500).json({ error: 'Error fetching emergency numbers' });
+  }
+});
+
+// Add Emergency Number
+app.post('/api/emergency', async (req, res) => {
+  const { userId, doctorContact, otherNumbers } = req.body;
+  try {
+    const emergencyNumbers = new EmergencyNumbers({ userId, doctorContact, otherNumbers });
+    await emergencyNumbers.save();
+
+    // Save emergency numbers to SQL
+    await sqlDB.execute(
+      'INSERT INTO emergency_numbers (user_id, doctor_contact, other_numbers) VALUES (?, ?, ?)',
+      [userId, doctorContact, JSON.stringify(otherNumbers)]
+    );
+
+    res.status(201).json({ message: 'Emergency numbers saved successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error saving emergency numbers' });
+  }
+});
+
+// 6. Start the Server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
